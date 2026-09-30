@@ -1,0 +1,14 @@
+{
+  "name": "video-highlights",
+  "version": "1.0.0",
+  "description": "Local, free video highlights pipeline: FFmpeg + whisper.cpp",
+  "private": true,
+  "license": "MIT",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "setup": "node setup.js",
+    "transcribe": "node transcribe.js",
+    "cut": "node cut.js",
+    "silence": "node silence.js"
+  }
+}
