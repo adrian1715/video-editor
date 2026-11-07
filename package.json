@@ -9,6 +9,7 @@
     "setup": "node setup.js",
     "transcribe": "node transcribe.js",
     "cut": "node cut.js",
-    "silence": "node silence.js"
+    "silence": "node silence.js",
+    "edit": "node auto-edit.js"
   }
 }
