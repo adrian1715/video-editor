@@ -1,337 +1,578 @@
-# Video Editing Toolkit
+# Creator Video Editor
 
-This repository provides three editing workflows that share FFmpeg:
+A local-first personal video toolkit using FFmpeg, Node.js and Python. Choose
+automatic first-pass highlights, manual cuts, or persistent projects that an
+editing agent can revise. Cloud transcription and semantic planning are optional.
 
-| Workflow | Use it for | Entry point | Outputs |
-| --- | --- | --- | --- |
-| **Automatic editor** | A file/URL plus a preset; no editing agent | `npm run edit -- ...` | `<source-folder>/edit/` |
-| **Local highlights** | Free, local transcript-led highlight cuts | `npm run transcribe`, `npm run cut` | `output/<video-name>/` |
-| **Video Use editor** | Conversation-led edits, Scribe timestamps, grades, captions, and overlays | Start Codex in the footage directory | `<footage-dir>/edit/` |
+**Status:** an experimental creator pipeline with tested rendering fundamentals.
+It is not yet production-ready against the full mission requirements. See
+[implementation status](docs/status.md) for the gaps and validation evidence.
 
-Choose one workflow per edit. The local highlights workflow uses whisper.cpp and
-never uploads media. Video Use uses ElevenLabs Scribe for word-level
-transcription and therefore needs an API key.
+## Contents
 
-## Requirements and First-Time Setup
+- [Creator Video Editor](#creator-video-editor)
+  - [Contents](#contents)
+  - [Features and architecture](#features-and-architecture)
+  - [Installation](#installation)
+  - [Configuration and privacy](#configuration-and-privacy)
+  - [Quick start](#quick-start)
+  - [Primary command reference](#primary-command-reference)
+  - [Advanced creator commands](#advanced-creator-command-reference)
+  - [Captions, audio and layouts](#captions-audio-and-layouts)
+  - [Platforms and content profiles](#platforms-and-content-profiles)
+  - [Existing commands](#existing-commands)
+  - [Agent-assisted editing](#agent-assisted-editing)
+  - [QA and testing](#qa-and-testing)
+  - [Troubleshooting and development](#troubleshooting-and-development)
 
-Run every command in this README from the repository root. Quote paths and URLs
-that contain spaces.
+## Features and architecture
 
-| Requirement | Used by | Install or check |
-| --- | --- | --- |
-| Node.js 18+ | Local and automatic commands | `node --version` |
-| FFmpeg and FFprobe | Every workflow | Windows: `winget install --id Gyan.FFmpeg -e` |
-| Python 3.10+ | Automatic editor and Video Use helpers | `python --version` |
-| ElevenLabs API key | Automatic editor and Video Use transcription | Store only in `video-use/.env` |
-| yt-dlp | Downloading or editing supported video URLs | `python -m pip install yt-dlp` |
+`editor.js` discovers Python/FFmpeg and starts `creator/cli.py`. This new adapter
+stores source metadata, editable ranges, word transcripts, profile defaults,
+audio settings, export dimensions, history, feedback, manifests and QA in a
+project directory. Rendering uses FFmpeg directly; the Scribe adapter reuses
+vendored helpers. The original `auto-edit.js`, `cut.js`, `silence.js`,
+`transcribe.js` and `download.js` remain compatible.
 
-Set up the free, fully local Whisper workflow once:
+Features implemented: multi-source cuts, missing-audio handling, fit/padded or
+centre-cropped composition, landscape/portrait/square dimensions, frame-rate
+normalization, captions, music/SFX beds with gain/delay and speech ducking,
+optional loudness normalization, multi-platform exports, JSON revisions,
+rollback, feedback logs, optional chat-completions planning, local word ASR,
+and opt-in Scribe. Legacy helpers also provide grading, timed overlays and
+filmstrip inspection. These advanced features are not yet unified in the new
+project renderer. See [architecture](docs/architecture.md).
 
-```powershell
-npm run setup                       # downloads whisper.cpp and the small model
-npm run setup -- --model medium      # optional: more accurate, larger model
-```
+## Installation
 
-On Windows, scripts find FFmpeg through `PATH` or `FFMPEG_DIR`. On macOS, run
-`brew install ffmpeg whisper-cpp`. Set `WHISPER_CLI` if whisper.cpp is installed
-outside the standard locations.
+Required: Node.js 18+, Python 3.10+, FFmpeg/FFprobe with libx264, AAC and libass.
+The new core needs only the Python standard library. Node scripts have no npm
+dependencies or build step.
 
-## Download a Video URL
-
-Download one supported video URL without starting an edit:
-
-```powershell
-npm run download -- "https://www.youtube.com/watch?v=example"
-npm run download -- "https://www.youtube.com/watch?v=example" --output "D:\Videos\Downloads"
-```
-
-The default destination is `downloads/` in this repository. Downloads are
-merged to MP4 when possible. Only download media you are authorized to save and
-use. Use the automatic editor below to download and edit the same URL in one
-command.
-
-## Automatic Editor (No Coding Agent Required)
-
-Use the `edit` command when you want an edit from a file or video URL plus a
-clear preset—without starting Codex or Claude. It uses deterministic transcript
-rules rather than an LLM: `highlights` ranks concise, high-signal spoken
-phrases, while `silence-cut` keeps every spoken phrase and removes pauses.
+Windows PowerShell:
 
 ```powershell
-# One-time support for YouTube and other supported URLs
-python -m pip install yt-dlp
-
-# Highlight reel from a URL or local path
-npm run edit -- "https://www.youtube.com/watch?v=example" --edit highlights --target 60
-npm run edit -- "D:\Videos\interview.mp4" --edit highlights --target 2m --subtitles --grade auto
-
-# Remove dead air, or deliver a vertical subtitled social version
-npm run edit -- "D:\Videos\talk.mp4" --edit silence-cut --grade none
-npm run edit -- "D:\Videos\talk.mp4" --edit highlights --target 45 --vertical --subtitles
+winget install --id OpenJS.NodeJS.LTS -e
+winget install --id Python.Python.3.12 -e
+winget install --id Gyan.FFmpeg -e
+# Open a fresh terminal, then from this repository:
+node --version
+python --version
+ffmpeg -version
+ffprobe -version
+npm run creator -- doctor
 ```
 
-Outputs go to `<source-folder>/edit/`: `edl.auto.json`, cached word-timed
-transcript data, per-clip grades, captions, and the rendered MP4. Scribe uploads
-audio to ElevenLabs and consumes transcription credits; it is not used by the
-fully local highlights pipeline.
+macOS: install Python/Node/FFmpeg with your preferred package manager, for
+example `brew install node python ffmpeg whisper-cpp`.
+Debian/Ubuntu Linux: `sudo apt install nodejs npm python3 python3-venv ffmpeg`.
+Check Node is at least version 18; distribution defaults vary.
 
-### Automatic editor options
+Optional packages (a virtual environment is recommended):
 
-| Option | Purpose |
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements-local.txt  # tested local ASR/audio versions
+python -m pip install -e ./video-use   # Scribe, waveform/image helper dependencies
+python -m pip install yt-dlp          # URL download support
+```
+
+On macOS/Linux activate using `source .venv/bin/activate` and use `python3`
+where needed. Set `PYTHON` to the interpreter executable if discovery fails.
+
+## Configuration and privacy
+
+The new CLI reads environment variables, not a root `.env` automatically:
+
+```powershell
+$env:PYTHON = 'C:\path\to\python.exe'
+$env:FFMPEG_DIR = 'C:\path\to\ffmpeg\bin'
+$env:WHISPER_MODEL = 'small'
+# Optional cloud Scribe:
+$env:ELEVENLABS_API_KEY = '<your-key>'
+# Optional local or cloud chat-completions service:
+$env:LLM_URL = 'http://localhost:1234/v1/chat/completions'
+$env:LLM_MODEL = 'your-model'
+$env:LLM_API_KEY = '<optional-provider-key>'
+```
+
+`FFMPEG`/`FFPROBE` can override executable names in Python. `WHISPER_CLI`
+configures the legacy local transcriber. Scribe also supports the Git-ignored
+`video-use/.env` containing `ELEVENLABS_API_KEY=...`.
+
+Local ASR does not upload footage. Scribe requires `--allow-upload`; it uploads
+audio and incurs provider charges. `plan --semantic` uploads only the brief,
+target, constraints, source IDs and word transcripts to `LLM_URL`; use a local service
+for privacy. No budget enforcement or token estimation is implemented. Model
+responses are treated as JSON data and never executed as shell commands.
+Keep project folders under ignored `output/`, or outside the repository.
+Transcripts and feedback persist until you delete their project folder.
+
+## Quick start
+
+For local automatic editing, install the transcription dependency once:
+
+```powershell
+npm run setup:local
+npm run creator -- doctor
+npm run highlights -- "D:\Videos\recording.mp4"
+```
+
+`setup:local` installs the pinned local ASR requirements into the same Python interpreter the editor
+uses. Whisper downloads its model on first transcription; this requires network
+access and disk space. Later runs reuse it. Set `$env:WHISPER_MODEL='tiny'` for a
+smaller, faster model with lower expected accuracy, or leave `small` as default.
+`npm run highlights`, `npm run youtube` and `npm run shorts` are aliases for
+`npm run edit -- highlights`, `youtube` and `shorts` respectively.
+
+### Transcription speed and console output
+
+The creator pipeline prints `Transcribing...` and `Transcription concluded.`
+once per uncached source. Unchanged footage reuses its saved transcript. The
+model is loaded once for all uncached sources in one command.
+
+Local speech recognition can take substantial time on long recordings,
+particularly on CPU; first use also downloads/loads model weights. The default
+`fast` preset uses the same `small` model with greedy decoding (beam size 1),
+silence filtering (VAD), CPU int8 and up to eight CPU threads. It automatically
+selects CUDA when the installed backend detects a compatible NVIDIA device;
+Intel integrated graphics are not CUDA acceleration. GPU runtime libraries are
+optional and are not installed automatically.
+
+PowerShell overrides:
+
+```powershell
+$env:WHISPER_PRESET = 'fast'     # default; lower decoding cost, possible accuracy tradeoff
+$env:WHISPER_THREADS = '8'       # CPU tuning; more threads are not always faster
+$env:WHISPER_DEVICE = 'cpu'      # auto (default), cpu, or cuda
+$env:WHISPER_VAD = '1'          # skip non-speech; original timestamps are restored
+# For a wider decoding search, or quiet speech missed by VAD:
+$env:WHISPER_PRESET = 'accurate' # beam size 5; slower
+$env:WHISPER_VAD = '0'
+# Optional smaller model: faster, usually less accurate, downloads once
+$env:WHISPER_MODEL = 'base'     # small remains default
+```
+
+Changing these variables affects new transcription, not existing cached words.
+Use a new output project to compare settings without deleting the original edit.
+VAD can miss quiet or unusual speech; turn it off if needed. Timing measurements
+and effective local ASR settings are recorded on each source in project JSON.
+The manual `tests/benchmark_asr.py --audio FILE` compares previous/fast settings
+locally and excludes warm-up; results on short synthetic speech are not an
+estimate of long-video throughput or recognition quality.
+
+Choose a **mode** (editorial job), a **profile** (content defaults), and export
+**platforms** (delivery formats). They are independent concepts. All modes share
+the persistent creator engine. No coding agent or paid AI is required; local
+transcription requires the optional faster-whisper package described above.
+
+```powershell
+# Highlights: a selective compilation, with complete ideas and explanations
+npm run edit -- highlights "D:\Videos\recording.mp4" --target 2m --preview
+# Review the preview, then rerun identical editorial options with --approve:
+npm run edit -- highlights "D:\Videos\recording.mp4" --target 2m --approve
+# Separate highlight clips rather than a compilation:
+npm run edit -- highlights "D:\Videos\recording.mp4" --target 2m --separate
+
+# YouTube: chronological long-form first pass, repeated explanations removed
+npm run edit -- youtube "D:\Videos\devlog.mp4" --profile build-in-public --captions
+
+# Shorts: independently planned adjacent ideas, vertical exports and captions
+npm run edit -- shorts "D:\Videos\recording.mp4" --count 3 --target 60
+
+# All three edits in one organized project beside the original video:
+npm run project -- "D:\Videos\recording.mp4" --count 3
+# Equivalent option on any primary mode; --output overrides the project root:
+npm run highlights -- "D:\Videos\recording.mp4" --project --output "E:\Edits\Full Project"
+```
+
+Default behavior renders full-resolution edited files beside the source:
+`recording-highlights.mp4`, `recording-youtube.mp4`, or
+`recording-shorts-01.mp4`, `recording-shorts-02.mp4`, etc. Repeated runs add a
+numeric suffix and never overwrite footage or previous edits. For multiple
+inputs, outputs default to the first input's directory. Use `--preview` for a
+lower-resolution draft; then `--approve` explicitly exports that reviewed edit.
+Neither step needs a coding agent. A plain command without either flag creates
+a final first-pass edit immediately, without an approval prerequisite.
+On completion the terminal prints **Final video ready** (or **Preview ready**),
+the exact playable MP4 path, and, for previews, a copy-paste final-export command. A cached-transcript
+message means existing words were reused successfully. Add `--json` for agent
+automation; the result includes both output directories and exact `video_files`.
+Local instructions are saved as a creative brief, not interpreted as commands.
+For semantic interpretation add `--ai --instructions "..."` with LLM_URL configured,
+or ask an agent to revise the saved mode project. Real narrative quality needs
+review; sentence completeness is only a mechanical proxy.
+
+### Primary command reference
+
+`npm run edit -- MODE "FILE" ["SECOND FILE"] [OPTIONS]`
+
+| Option | Meaning |
 | --- | --- |
-| `--edit highlights` | Select a target-length reel from scored speech phrases. |
-| `--edit silence-cut` | Keep all speech phrases while removing pauses. |
-| `--target 60`, `--target 1m30s` | Desired highlight length. |
-| `--subtitles` | Build and burn word-timed captions after overlays. |
-| `--grade auto`, `neutral_punch`, `warm_cinematic`, `none` | Apply a per-segment grade. |
-| `--vertical` | Centre-crop and render a 1080×1920 version. |
-| `--overlay "C:\overlay.webm@4.5"` | Composite a pre-rendered overlay at an output time; repeat for more overlays. |
-| `--preview` | Render a faster preview before a final run. |
+| `MODE` | `highlights`, `youtube`, `shorts`, or `project` (all three) |
+| `--profile NAME` | Any content profile below; default `build-in-public` |
+| `--target 60` / `--target 1m30s` | Approximate editorial duration; complete/required ideas may exceed it |
+| `--count 3` | Maximum Shorts count, 1–100; fewer if insufficient distinct material |
+| `--ai` | Opt into configured LLM; currently AI Shorts requires `--count 1` |
+| `--output PATH` | Single mode: destination directory for MP4s; project: root folder |
+| `--project` | Generate YouTube, Highlights and Shorts in a full organized project beside the first source |
+| `--cache-dir PATH` | Single mode: override the user cache location holding transcripts, history and logs |
+| `--preview` | Render a draft instead of the default final; cannot combine with `--approve` |
+| `--approve` | Final render of the already-previewed revision |
+| `--instructions TEXT` | Creative brief for AI/agents; recorded but not interpreted by local rules |
+| `--platforms youtube,shorts` | Export profiles; default `youtube` for Highlights/YouTube, `shorts` for Shorts |
+| `--transcript FILE` | Import corrected source-keyed word JSON instead of running ASR |
+| `--provider local` / `scribe` | Word ASR provider; Scribe also requires `--allow-upload` |
+| `--allow-upload` | Explicit Scribe consent; cloud charges may apply |
+| `--captions` | Burn captions; enabled by default for Shorts |
+| `--separate` | Highlights only: one clip per selected idea |
+| `--constraints FILE` | JSON include/exclude timestamps; see agent workflow |
+| `--help` | Complete command usage and supported flags |
+| `--json` | Structured output for agents; normal runs show readable completion and video paths |
 
-The automatic selector cannot understand story, humor, or brand context as well
-as a human editor. For editorial direction, multiple takes, custom animation,
-or iterative feedback, use the Video Use workflow below; its helper commands
-are also available directly without an agent.
+Highlights uses Pareto as an editorial heuristic: selective value and context,
+not an obligation to keep exactly 20%. YouTube preserves chronology and removes
+near-duplicate sentences and inter-sentence gaps; it does not automatically remove
+repeated individual words or invent a narrative. Shorts groups adjacent complete
+sentences rather than mixing unrelated moments. Hooks/payoffs remain experimental
+creative judgments. With `--profile music`, YouTube preserves the original full
+performance and skips speech ASR; manual edits are needed for musical cuts.
 
-## Video Use: Conversation-Led Editing
+**Highlights preserves the original treatment by default.** It only selects and
+joins moments: no loudness normalization, gain/compression/ducking, music mix,
+grading, fades, or captions. Source resolution, aspect ratio, nominal frame rate,
+audio sample rate and channel count are retained for a single source. Explicit
+`--platforms` requests conversion; `--captions` explicitly enables captions.
+Previews can be smaller for review. Audio is held as PCM between segments and
+encoded once to AAC at final export. Video is still re-encoded for accurate cuts,
+as in the original cutter; this is not a bit-for-bit lossless copy. Multiple
+sources use the first selected source's format to make concatenation consistent.
+The old commit's brief fades are intentionally omitted to honor cut-only edits.
+Cached Highlights settings from older versions are updated automatically without
+retranscribing or deleting existing outputs. Rerun your usual Highlights command
+to generate the corrected file; previous exports are left intact.
 
-`video-use/` is installed alongside this project and registered with Codex as
-the `video-use` skill. It keeps source clips untouched and writes every project
-artifact to an `edit/` folder next to the footage.
+### Output locations and retries
 
-### Start an edit
+Single edits create only MP4 files in the source directory (or `--output`).
+Transcripts, editable mode projects, QA, history and failure diagnostics live in
+`%LOCALAPPDATA%\VideoEditor\Cache` on Windows, or `$XDG_CACHE_HOME/video-editor`
+(normally `~/.cache/video-editor`) elsewhere. `--cache-dir` overrides this.
+The command prints delivered paths and the processing-state location. Caches
+persist for retries; delete them manually when no longer needed.
 
-1. Put footage in a dedicated folder, for example `D:\Videos\Launch\`.
-2. Open a new terminal there and start Codex.
-3. Ask for an inventory or an edit, such as: `inventory these takes and propose a strategy` or `edit these into a launch video`.
-4. Review the proposed plan and explicitly approve it. Video Use will not alter
-   the cut before confirmation.
+Only `--project` / the `project` mode creates the following full project beside
+the first source, by default `<source-name>-edited-project/`:
 
-It can transcribe with speaker/timestamp detail, select takes, render a preview
-or final, create subtitles, apply per-clip grades, and add requested overlays.
-It caches transcripts, so follow-up changes re-render rather than re-upload.
+```text
+<source-directory>/<source-name>-edited-project/
+  data/          source project, cached transcripts, plans, history
+    edits/       persistent per-mode/per-clip projects for agent revisions
+  highlights/    unique preview/final compilation or clip folders
+  youtube/       unique long-form output folders
+  shorts/        unique vertical output folders
+  assets/        reserved for creator-provided assets (no sourcing/generation)
+  temporary/     intermediate render jobs, retained on failure
+  reports/       run logs, results, preview approval records
+```
 
-### Direct helper commands
+In project mode each delivered folder contains `preview.mp4` or `final.mp4`, `captions.srt`,
+`qa.json`, and `manifest.json`. JSON results report exact paths and `mode_projects`.
+Original footage is never overwritten. Single edits don't create project folders.
+Retry the same command after fixing an error: unchanged transcripts and plans are
+reused. Changing source size/mtime invalidates ASR cache. Logs and project state
+remain on failure. Keep options identical between preview and approval. Existing
+repository output/projects data is copied into the new workspace on first reuse
+when available, avoiding repeat transcription; previous outputs are not deleted.
 
-Use these for focused advanced work without an agent. `transcribe*.py` spends
-ElevenLabs credits; it caches each source transcript and writes to the source
-folder's `edit/` directory by default.
+### Agent-assisted mode and advanced revisions
 
-| Feature | Command |
-| --- | --- |
-| One video: word timings, diarization, audio events | `python video-use/helpers/transcribe.py "video.mp4"` |
-| Set output, language, speakers, or OBS audio track | Add `--edit-dir "edit" --language en --num-speakers 2 --audio-track 1` |
-| Transcribe a directory in parallel | `python video-use/helpers/transcribe_batch.py "D:\Videos\Takes" --workers 4` |
-| Pack transcript JSON into timestamped phrases | `python video-use/helpers/pack_transcripts.py --edit-dir "D:\Videos\Takes\edit"` |
-| Change phrase breaks or output file | Add `--silence-threshold 0.7 -o "packed.md"` |
-| Inspect a range as frames plus waveform | `python video-use/helpers/timeline_view.py "video.mp4" 12 18` |
-| Change timeline output / samples | Add `-o "timeline.png" --n-frames 16` |
-| Analyse a clip's automatic grade | `python video-use/helpers/grade.py --analyze "video.mp4"` |
-| List available grades | `python video-use/helpers/grade.py --list-presets` |
-| Apply auto grade | `python video-use/helpers/grade.py "in.mp4" -o "out.mp4"` |
-| Apply a named grade | Add `--preset subtle`, `neutral_punch`, `warm_cinematic`, or `none` |
-| Apply a custom FFmpeg grade | Add `--filter "eq=contrast=1.1:saturation=1.05"` |
-| Render an EDL | `python video-use/helpers/render.py "edit/edl.json" -o "edit/final.mp4"` |
-| Fast render | Add `--preview` (1080p) or `--draft` (720p) |
-| Build and burn output-timeline captions | Add `--build-subtitles` |
-| Skip captions or loudness normalization | Add `--no-subtitles` or `--no-loudnorm` |
-| Force frame rate | Add `--fps 30` or `--fps 30000/1001` |
+From the repository root launch `codex` or `claude`, then request, for example:
 
-The advanced renderer applies per-segment grades, 30 ms audio fades at cut
-boundaries, lossless clip concatenation, overlays before captions, captions last
-in the filter chain, HDR-to-SDR tone mapping when necessary, and default audio
-normalization to -14 LUFS / -1 dBTP. Do not store the API key in tracked files;
-it belongs only in Git-ignored `video-use/.env`.
+```text
+Read README and docs/agent-workflow.md. Run the Shorts mode on my recording with
+three candidates. Inspect each returned mode_project and contact sheet. Propose
+a better hook and payoff using complete transcript ideas. Validate changes,
+preview them and show me QA before final approval.
+```
 
-### EDL format
+An agent uses the returned `data/edits/...` path with `node editor.js inspect`,
+`plan`, `validate-plan`, `apply-plan`, `revise`, `frames` and `feedback`.
+For example `node editor.js revise --project "<mode_project>" --patch patch.json`
+can change captions or manually adjust ranges. Re-running the primary mode with
+the same options reloads that project, preserving revisions, then generates a
+new preview. Different editorial options create a new project variant. Approval
+is bound to the exact edit/settings/platforms. Both standalone and agents use
+the same FFmpeg renderer and QA reports.
 
-`render.py` takes an Edit Decision List (EDL). It supports multiple source
-videos, exact time ranges, grade presets/raw filters, timed MP4/WebM overlays,
-captions from cached transcripts, and vertical output.
+Licensed music supplied by you can be added through project audio patches. Legacy
+helpers still support grades and overlays. Automatic music sourcing, generated
+B-roll, smart face tracking, dynamic layouts, zooms/transitions/visual effects are
+not integrated into these modes. `fit` preserves screen content using padding;
+it is not intelligent subject tracking. See [status](docs/status.md).
+
+## Advanced creator command reference
+
+
+All use `npm run creator -- COMMAND`. The advanced `--project PATH` names one
+persistent workspace (different from the primary mode's boolean --project flag).
+If omitted, it defaults to `advanced-project` in the user cache.
+
+| Command             | Flags and behavior                                                                            |
+| ------------------- | --------------------------------------------------------------------------------------------- |
+| `doctor`            | Report whether FFmpeg and FFprobe can be found                                                |
+| `profiles`          | Print built-in content, caption and platform defaults                                         |
+| `init`              | `--sources FILE ... --profile NAME`; refuses an existing project                              |
+| `analyze`           | Print stored metadata; `--transcript FILE` imports source-keyed word JSON                     |
+| `transcribe`        | `--provider local` (default) or `scribe --allow-upload`; skip unchanged sources               |
+| `plan`              | `--target 60 --constraints FILE`; local selection or optional `--semantic --instructions TEXT` |
+| `repurpose`         | `--count 3 --target 30`; write reviewed clip candidates; use `--clip INDEX` for preview/approve/export |
+| `preview`           | `--platforms youtube,shorts`; lower-resolution review renders                                 |
+| `render` / `export` | `--platforms youtube,shorts`; full-size per-platform renders                                  |
+| `qa`                | `--file FILE`; decode file and write `qa.json`                                                |
+| `revise`            | `--patch FILE`; recursively merge objects, replace arrays, preserve history                  |
+| `history`           | List saved project JSON versions                                                              |
+| `rollback`          | `--version FILENAME`; restore and version an earlier edit                                     |
+| `feedback`          | `--instructions TEXT --decision accepted` (also `rejected`, `note`); record revision-specific feedback |
+| `inspect`           | Return project, metadata, words, timeline, settings and revision hash as JSON |
+| `frames`            | `--source s0`; generate an eight-frame contact sheet |
+| `validate-plan`     | `--plan-file FILE`; validate boundaries, constraints, overlap and base revision |
+| `apply-plan`        | `--plan-file FILE`; validate and apply only ranges with history |
+| `approve`           | Approve current revision (or `--clip INDEX`) before final export |
+
+`--help` lists all flags. Project files are JSON. Source keys (`s0`, `s1`, ...)
+map to absolute files plus FFprobe metadata. Ranges contain numeric seconds:
+`{"source":"s0","start":1.2,"end":12.3}`. A transcript import looks like
+`{"s0":{"words":[{"start":1.2,"end":1.6,"text":"Olá","type":"word"}]}}`.
+Correct imported words before rendering. Transcript hashes are not cryptographic:
+the cache uses file size and modification time.
+
+Semantic plan and revision:
+
+```powershell
+npm run creator -- plan --project output/talk --semantic --instructions "Choose a complete hook and lesson in Brazilian Portuguese. Keep essential context."
+# Inspect the returned plan_file before applying:
+npm run creator -- apply-plan --project output/talk --plan-file "output/talk/plans/<id>.json"
+npm run creator -- feedback --project output/talk --instructions "Accepted slower pacing; prefer cinematic captions."
+npm run creator -- history --project output/talk
+```
+
+Semantic support is experimental: sentence/word boundaries, overlap, revision and
+include/exclude constraints are checked. Narrative quality is subjective and
+language/provider quality still needs real-footage review. Candidate generation
+is local, with a complete preview/approve/export path. Feedback is an inspectable JSON log;
+automatic preference retrieval and learning are not yet implemented.
+
+## Captions, audio and layouts
+
+Create a patch JSON and apply with `revise --patch`. Objects merge recursively;
+arrays replace entire arrays. For example `{"settings":{"caption":"shorts"}}`
+preserves layout, audio and loudness settings. Unknown settings are rejected.
 
 ```json
 {
-  "version": 1,
-  "sources": { "take_01": "D:/Videos/take_01.mp4" },
-  "ranges": [
-    { "source": "take_01", "start": 2.42, "end": 6.85,
-      "beat": "HOOK", "reason": "Clean opening" }
-  ],
-  "grade": "auto",
-  "overlays": [
-    { "file": "edit/animations/slot_1/render.webm", "start_in_output": 0.0, "duration": 5.0 }
-  ],
-  "aspect": "vertical"
+  "settings": {
+    "layout": "fit",
+    "caption": "tech",
+    "captions": true,
+    "fps": 30,
+    "lufs": -14
+  },
+  "audio": [
+    { "file": "D:/Music/authorized-bed.wav", "gain": 0.12, "start": 0 },
+    { "file": "D:/Sounds/click.wav", "gain": 0.4, "start": 5 }
+  ]
 }
 ```
 
-Render it with:
+Caption presets: `tech` (3 words), `cinematic` (8 words), `shorts` (2 words).
+The renderer exports SRT and optionally burns subtitles after scaling. Defaults
+use outlined libass text with safe-zone margins. Font/colour/keyword animation
+configuration and ASS export are not yet exposed. Set `captions:false` for a
+clean export. Use transcript corrections for vocabulary changes.
 
-```powershell
-python video-use/helpers/render.py "edit/edl.json" -o "edit/final.mp4" --build-subtitles
-```
+All extra audio sources are delayed by `start` seconds, gain-adjusted and mixed
+into a bed ducked by narration. This also ducks SFX; separate bus routing,
+crossfades, fades, sync offsets and two-pass loudness are pending. `lufs:null`
+preserves normalization-free output for music; AAC encoding still occurs.
 
-## Local Highlights Pipeline
+`layout:fit` pads to preserve screens, code, faces and portrait orientation.
+`layout:crop` uses a static centre crop. Face/subject/speaker tracking, manual
+crop boxes, picture-in-picture and split-screen are not implemented in this CLI.
+Prefer `fit` for programming tutorials and app demonstrations.
 
-Drop in a long video and get back a short highlights video. Everything runs
-locally and free: FFmpeg does the audio and video work, and whisper.cpp does the
-speech-to-text. There are no uploads, no API keys and no file-size limits.
-Portuguese and English (and ~95 other languages) are detected automatically.
+## Platforms and content profiles
 
-### Setup
-
-Requirements: Node.js 18+ and FFmpeg.
-
-```bash
-# Windows (FFmpeg)
-winget install --id Gyan.FFmpeg -e
-# macOS
-brew install ffmpeg whisper-cpp
-
-node setup.js                 # checks everything, downloads whisper.cpp + the "small" model (~470 MB)
-node setup.js --model medium  # optional: the more accurate "medium" model (~1.5 GB)
-```
-
-There's nothing to `npm install`; the scripts only use Node's built-in modules.
-
-### Why the whisper.cpp binary instead of `nodejs-whisper`?
-
-`nodejs-whisper` compiles whisper.cpp from source when it installs, and on Windows
-that needs Visual Studio Build Tools (several GB), CMake and `make`. `setup.js`
-instead downloads the official prebuilt `whisper-cli.exe` from the whisper.cpp
-GitHub releases. That's a ~9 MB zip with no compiler needed and nothing that can
-break during `npm install`, and the scripts call it directly. On macOS,
-`brew install whisper-cpp` provides the same binary. On Linux, build it with CMake
-and set `WHISPER_CLI=/path/to/whisper-cli`.
-
-### Usage
-
-### 1. Transcribe
-
-```bash
-node transcribe.js "D:\Videos\Live 2026-09-12.mp4"
-node transcribe.js episode.mkv --model medium       # more accurate, ~3× slower
-node transcribe.js episode.mkv --language pt        # skip auto-detect
-node transcribe.js episode.mkv --threads 8          # limit CPU worker threads
-```
-
-This writes to `output/<videoname>/`:
-
-```
-transcript.txt   [00:02:14.00 - 00:02:41.50] So here's the thing nobody tells you...
-transcript.srt   subtitles (also handy for YouTube)
-meta.json        duration, detected language, model
-```
-
-Expect about 3× real time with `small` on a modern laptop CPU, so a 1-hour video
-takes roughly 20 minutes. A progress bar with an ETA is shown.
-
-### 2. Cut
-
-Write a `segments.json` (or let Claude write it; see below):
+Export defaults: YouTube/LinkedIn 1920x1080; Shorts/Instagram/TikTok 1080x1920;
+X 1280x720; square 1080x1080. All use H.264/AAC MP4. These are creator defaults,
+not assertions about platform maximums or account limits. Change dimensions with:
 
 ```json
-[
-  { "start": "00:02:14.00", "end": "00:02:41.50", "reason": "Strong hook" },
-  { "start": "00:17:03.20", "end": "00:17:48.00", "reason": "Funniest moment" }
-]
+{
+  "exports": {
+    "youtube": [3840, 2160],
+    "shorts": [1080, 1920],
+    "square": [1080, 1080]
+  }
+}
 ```
 
-```bash
-node cut.js episode.mp4 segments.json              # -> output/episode/highlights.mp4
-node cut.js episode.mp4                            # uses output/episode/segments.json
-node cut.js episode.mp4 --vertical                 # 9:16 1080x1920 -> highlights-vertical.mp4
-node cut.js episode.mp4 --separate                 # one file per segment -> clips/01-strong-hook.mp4 ...
-node cut.js episode.mp4 --vertical --separate      # vertical clips for Shorts/Reels/TikTok
-node cut.js episode.mp4 --no-fade                  # hard cuts
-node cut.js episode.mp4 --fade 0.5                 # longer fade (default 0.3s)
-node cut.js episode.mp4 --cpu                      # force software x264
-```
+Content profiles set editable caption/layout/loudness defaults:
 
-- **Frame-accurate:** every segment is re-encoded, so cuts land on the exact
-  frame rather than the nearest keyframe.
-- **Hardware encoding:** it tries NVIDIA NVENC, Intel Quick Sync, AMD AMF and
-  Apple VideoToolbox, uses the first one that works, and otherwise falls back to
-  libx264.
-- **Fades:** each segment fades in and out through black with a matching audio
-  fade, so the joins aren't jarring.
-- It prints each segment and the percentage of the original kept.
+| Profile                 | Intended content                       | Defaults                             |
+| ----------------------- | -------------------------------------- | ------------------------------------ |
+| `build-in-public`       | Programming, products, project updates | tech captions, fit, -14 LUFS         |
+| `personal-essays`       | Reflections and self-improvement       | cinematic captions, fit, -16 LUFS    |
+| `music`                 | Guitar/songwriting/performances        | cinematic captions, fit, no loudnorm |
+| `creative-storytelling` | Fiction, horror, writing               | cinematic captions, fit, -16 LUFS    |
+| `social-shorts`         | Lessons, humor and quick updates       | shorts captions, fit, -14 LUFS       |
 
-### 3. Trim dead air (optional)
+Profiles do not invent transitions, music or narrative. Supply assets and edit
+ranges deliberately. The brand motto is stored as `Underdogs Win.` in projects.
+Per-platform limits, file-size budgets, chapters, thumbnails, cover candidates,
+publishing copy and automatic asset generation remain future work.
 
-```bash
-node silence.js episode.mp4                        # lists silences >= 1s below -30 dB
-node silence.js episode.mp4 --noise -35 --min 0.7  # quieter threshold, shorter gaps
-node silence.js episode.mp4 --pad 0.25             # preserve speech-edge breathing room
-node cut.js episode.mp4 output/episode/no-silence.json --no-fade   # the video minus dead air
-```
+## Existing commands
 
-## Optional Agent-Directed Editing
-
-Use this path when the edit needs story judgment, multiple takes, a custom
-animation, or iterative feedback. Video Use is registered with Codex; start an
-agent from the folder that contains the footage:
+These are still supported; their output is separate from persistent projects.
 
 ```powershell
-cd "D:\Videos\Launch"
-codex
+npm run setup -- --model medium
+npm run download -- "https://example.com/video" --output "D:\Videos\Downloads"
+npm run transcribe -- "video.mp4" --model small --language pt --threads 8
+npm run silence -- "video.mp4" --noise -35 --min 0.7 --pad 0.25
+npm run cut -- "video.mp4" output/video/no-silence.json --no-fade
+npm run cut -- "video.mp4" segments.json --vertical --separate --cpu
+npm run cut -- "video.mp4" segments.json --fade 0.3
+npm run edit -- "video.mp4" --edit highlights --target 60 --vertical --subtitles --grade auto
+npm run edit -- "video.mp4" --edit silence-cut --language pt --preview
 ```
 
-Then use a natural-language prompt. For example:
+`setup` downloads whisper.cpp/model assets. Local `transcribe` writes TXT, SRT,
+metadata under `output/<name>/`. `silence` writes detected gaps plus inverse
+segments. `cut` accepts `[{"start":"00:01:00","end":"00:01:10","reason":"hook"}]`,
+defaults to `output/<name>/segments.json`, optionally exports separate clips,
+and supports fades/hardware encoders with CPU fallback. `download` saves a single
+URL with yt-dlp. Only download material you have permission to use.
+
+Legacy `edit` uses Scribe automatically, with English keyword ranking as a
+fallback selector. `--target` accepts seconds or `1m30s`; `--overlay FILE@SECONDS`
+is repeatable with a fixed five-second window. Existing files may be overwritten;
+it is a compatibility path, with weaker cache/output isolation than projects.
+
+Migration: `npm run edit -- "video.mp4" --edit highlights ...` still invokes the
+legacy Scribe workflow, with a deprecation message. Its default output is now
+the source directory, or explicit `--output PATH`; intermediates are kept in the
+user cache. Prefer `npm run edit -- highlights "video.mp4" ...` for cached
+projects and approval. Legacy `--vertical`, `--subtitles`, `--grade`, `--language`,
+`--overlay`, and `--edit silence-cut` remain available there. New modes use
+`--platforms shorts` and `--captions`; grade/overlay integration is still legacy.
+Primary mode inputs are local paths; run `npm run download -- URL` first.
+Unknown legacy flags now fail with migration guidance instead of being ignored.
+
+Downloads default to your Windows Downloads known folder (including a redirected
+folder), or `~/Downloads` elsewhere. `npm run download -- URL --output PATH`
+changes that destination. Downloads do not default to this repository.
+
+Advanced helpers:
+
+```powershell
+python video-use/helpers/transcribe.py "video.mp4" --edit-dir output/asr --num-speakers 2 --audio-track 1 --language pt
+python video-use/helpers/transcribe_batch.py "D:\Videos\Takes" --workers 4
+python video-use/helpers/pack_transcripts.py --edit-dir output/asr --silence-threshold 0.7 -o output/packed.md
+python video-use/helpers/timeline_view.py "video.mp4" 12 18 --n-frames 16 -o output/timeline.png
+python video-use/helpers/grade.py --list-presets
+python video-use/helpers/grade.py --analyze "video.mp4"
+python video-use/helpers/grade.py "in.mp4" -o output/graded.mp4 --preset neutral_punch
+python video-use/helpers/grade.py "in.mp4" -o output/graded.mp4 --filter "eq=contrast=1.1"
+python video-use/helpers/render.py "edl.json" -o output/final.mp4 --build-subtitles --fps 30
+```
+
+Grade presets include `subtle`, `neutral_punch`, `warm_cinematic`, `none`;
+omitting a preset runs auto-analysis. Vendored render options include `--preview`,
+`--draft`, `--no-subtitles`, `--no-loudnorm`. Its EDL differs from project JSON:
+`sources` maps names directly to file paths, and `ranges` uses those names.
+Optional `overlays` contains `{file,start_in_output,duration}`; `grade` accepts
+a preset/filter; `aspect:"vertical"` centre crops. Manim, Remotion and HyperFrames
+are optional authoring tools described in the vendored skill, not installed
+engines or automatic animation features of the core CLI.
+
+## Agent-assisted editing
+
+Start your agent in this repo and ask:
 
 ```text
-Inventory these takes and propose a 60-second vertical launch video with captions.
-
-Edit these clips into a two-minute tutorial: keep the clearest take of every step,
-use a clean neutral grade, and show captions.
-
-Make a fast 45-second highlight reel from this interview. Preserve the strongest
-hook and conclusion, flag any potentially sensitive quote, and suggest a title.
+Read README and docs/status.md. Import my footage into output/launch using the
+creator CLI. Propose a 60-second vertical story: problem, attempt, result, lesson.
+Use fit layout for code. Show me the proposed ranges before applying them.
 ```
 
-The agent inspects the footage, transcribes it with word-level timing, reviews
-the packed transcript and relevant timelines, then proposes an editing strategy.
-Review and approve that strategy before it renders. It can select takes, create
-an EDL, apply per-segment grades, create or composite overlays, burn captions,
-normalize audio, render previews/finals, and verify cut boundaries.
+The agent should inspect transcripts and visual evidence, propose decisions,
+apply reviewed JSON patches, render previews and disclose unrun QA checks.
+Revisions such as “keep the joke at 2:15” are agent instructions, not a natural
+language CLI parser. Agents should reuse transcripts and write history entries.
+The vendored Video Use skill remains available as an alternative workflow.
 
-Give revision requests after a preview without re-transcribing, for example:
+Use Codex by running `codex` from the repository root; use Claude Code by running
+`claude` there. Both should read [the stable agent CLI contract](docs/agent-workflow.md)
+and [the reusable editing skill](skills/creator-editing/SKILL.md). No global skill
+installation or engine changes are necessary. Machine callers should use
+`node editor.js inspect --project output/talk --json` (without npm's banner).
 
-```text
-Drop segment 3, move the conclusion earlier, keep it under 50 seconds, and re-render vertical.
+Preview and export multiple shorts using the same engine:
+
+```powershell
+npm run creator -- repurpose --project output/talk --count 3 --target 30
+npm run creator -- preview --project output/talk --clip 1 --platforms shorts
+npm run creator -- approve --project output/talk --clip 1
+npm run creator -- export --project output/talk --clip 1 --platforms shorts,instagram,tiktok
+npm run creator -- feedback --project output/talk --decision rejected --instructions "Candidate 2 lacks context"
 ```
 
-All agent-session artifacts and final files stay in `<footage-folder>/edit/`.
-For deterministic, no-agent edits, use the **Automatic Editor** commands above.
+Repeat for other candidate indices returned by repurpose. Apply project changes
+before regenerating candidates: stale candidates are rejected. Plan constraints,
+JSON schemas, and six content-brief examples are in the agent contract.
 
-## Project Files and Output Locations
+## QA and testing
 
-```
-setup.js        dependency check + downloads
-download.js     URL downloader (yt-dlp)
-transcribe.js   FFmpeg audio extraction + whisper.cpp
-cut.js          segment cutting / joining
-silence.js      silence detection
-lib.js          shared helpers (tool discovery, progress bar, time formats)
-bin/            whisper.cpp binary (downloaded)
-models/         whisper models (downloaded)
-output/<name>/  everything generated for a video
-video-use/       advanced helpers and the ignored .env key file
+```powershell
+npm run creator -- qa --project output/talk --file "output/talk/renders/<job>/final.mp4"
+$env:PYTHONUTF8='1'
+python -m unittest discover -s tests -v
+python -m unittest discover -s video-use/tests -v
+python tests/smoke_creator.py
+python tests/smoke_modes.py
 ```
 
-## Troubleshooting
+New exports write a manifest and QA JSON with resolution/duration checks and
+complete decode verification. `fully_verified` intentionally remains false:
+black frames, silence/clipping measurements, caption safe-zone geometry,
+overlay timing and creative judgment are not comprehensively tested.
+The smoke script generates test patterns and tones under ignored `output/`;
+it verifies actual landscape/vertical exports, captions and mixing. It does not
+validate real speech recognition, language quality or professional editing taste.
+See [production acceptance checklist](docs/acceptance.md) for the real-footage
+checks that require credentials or manual review.
 
-- **"FFmpeg not found"**: open a new terminal after installing (so PATH updates),
-  or set `FFMPEG_DIR` to the folder containing `ffmpeg.exe`.
-- **Transcript is poor or in the wrong language**: try `--model medium` and/or
-  `--language pt`.
-- **Hardware encoder errors**: they're retried automatically with libx264, or you
-  can use `--cpu`.
-- **Vertical crop cuts off the speaker**: `--vertical` crops from the centre. If
-  you're off to one side of the frame, you'll need to reframe manually.
-- **Automatic highlights are unsuitable for music-only footage**: use
-  `npm run silence` and a hand-authored `segments.json`, or make a manual cut.
-- **URL download fails**: update yt-dlp with `python -m pip install -U yt-dlp`;
-  website access rules may still prevent downloads.
-- **Keep credentials safe**: `video-use/.env` is Git-ignored. Never commit,
-  publish, or paste the ElevenLabs key into an untrusted service.
+## Troubleshooting and development
+
+- Missing Python: activate your environment or set `PYTHON` explicitly.
+- Missing FFmpeg: reopen the terminal, set `FFMPEG_DIR`, then run `doctor`.
+- ASR package missing: install `faster-whisper`; first model download needs network.
+- Caption render fails: ensure FFmpeg includes libass and fonts are installed.
+- Semantic plan fails: check endpoint/model/key; no model shell commands are run.
+- Invalid EDL: check source keys and finite `start < end` inside source duration.
+- Interrupted render: earlier project/history remains; rerun into a new render job.
+  Remove abandoned render job directories manually to reclaim space.
+
+Project stages cache transcripts, but exports currently re-encode segments for
+each target. This costs CPU and disk; source-aware render caching is pending.
+Feedback can be inspected/edited/exported as `preferences.json`; delete that file
+to erase it. It is not yet applied automatically to future projects.
+
+Development: use small changes, preserve legacy commands, test media paths with
+spaces and Unicode, and never commit generated media or credentials. See
+[audit and current status](docs/status.md). Vendored code is MIT, copyright
+Browser Use; retain [its license](video-use/LICENSE). Root package declares MIT;
+FFmpeg and optional libraries retain their respective distribution licenses.

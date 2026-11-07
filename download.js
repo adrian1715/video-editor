@@ -30,7 +30,7 @@ async function main() {
   if (!url || flags.help) return console.log(USAGE);
   if (!/^https?:\/\//i.test(url)) lib.die('Provide a complete http:// or https:// video URL.');
 
-  const outputDir = path.resolve(flags.output || path.join(__dirname, 'downloads'));
+  const outputDir = path.resolve(flags.output || downloadsDirectory());
   fs.mkdirSync(outputDir, { recursive: true });
   const python = findPython();
   const args = pythonArgs(python, [
@@ -47,4 +47,15 @@ async function main() {
   });
 }
 
-main().catch((error) => lib.die(error.message));
+function downloadsDirectory() {
+  if (process.platform === 'win32') {
+    // Respect Windows' redirected Downloads known folder (e.g. another drive).
+    const query = spawnSync('reg.exe', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\User Shell Folders', '/v', '{374DE290-123F-4565-9164-39C4925E467B}'], { encoding: 'utf8', windowsHide: true });
+    const match = /REG_(?:EXPAND_)?SZ\s+(.+)/.exec(query.stdout || '');
+    if (match) return match[1].trim().replace(/%([^%]+)%/g, (_, name) => process.env[name] || process.env[name.toUpperCase()] || `%${name}%`);
+  }
+  return path.join(require('os').homedir(), 'Downloads');
+}
+
+if (require.main === module) main().catch((error) => lib.die(error.message));
+module.exports = { downloadsDirectory };

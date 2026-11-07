@@ -15,6 +15,12 @@ const fs = require('fs');
 const path = require('path');
 const lib = require('./lib');
 
+// New primary modes share the persistent creator engine. Keep legacy syntax below.
+if (['highlights', 'youtube', 'shorts', 'project', '--help', '-h'].includes(process.argv[2]) || process.argv.length === 2) {
+  const result = spawnSync(process.execPath, [path.join(__dirname, 'editor.js'), '--mode-cli', ...process.argv.slice(2)], { stdio: 'inherit', windowsHide: true });
+  process.exit(result.status ?? 1);
+}
+
 const ROOT = __dirname;
 const VIDEO_USE = path.join(ROOT, 'video-use');
 const HELP = `Usage: npm run edit -- <file-or-url> [options]
@@ -43,7 +49,7 @@ function run(command, args, options = {}) {
 }
 
 function findPython() {
-  const candidates = [process.env.PYTHON, 'python', 'py'].filter(Boolean);
+  const candidates = [process.env.PYTHON, 'python3', 'python', 'py'].filter(Boolean);
   if (process.platform === 'win32' && process.env.LOCALAPPDATA) {
     candidates.push(path.join(process.env.LOCALAPPDATA, 'Programs', 'Python', 'Python312', 'python.exe'));
   }
@@ -68,13 +74,12 @@ function parseDuration(value) {
 function isUrl(value) { return /^https?:\/\//i.test(value); }
 
 async function downloadUrl(url, python) {
-  const dir = path.join(ROOT, 'output', 'downloads');
+  const dir = require('./download').downloadsDirectory();
   fs.mkdirSync(dir, { recursive: true });
-  const before = new Set(fs.readdirSync(dir));
-  await run(python, pythonArgs(python, ['-m', 'yt_dlp', '--no-playlist', '--merge-output-format', 'mp4', '-o', path.join(dir, '%(title).180B-%(id)s.%(ext)s'), url]));
-  const files = fs.readdirSync(dir)
-    .filter((name) => !before.has(name) && /\.(mp4|mkv|webm|mov)$/i.test(name))
-    .map((name) => path.join(dir, name));
+  const manifest = path.join(dir, 'download-path.txt');
+  if (fs.existsSync(manifest)) fs.unlinkSync(manifest);
+  await run(python, pythonArgs(python, ['-m', 'yt_dlp', '--no-playlist', '--merge-output-format', 'mp4', '--print-to-file', 'after_move:filepath', manifest, '-o', path.join(dir, '%(title).180B-%(id)s.%(ext)s'), url]));
+  const files = fs.existsSync(manifest) ? fs.readFileSync(manifest, 'utf8').trim().split(/\r?\n/).filter((name) => fs.existsSync(name)) : [];
   if (!files.length) die('yt-dlp finished but did not create a video file.');
   return files.sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0];
 }
@@ -161,13 +166,20 @@ async function main() {
   for (let i = argv.length - 1; i >= 0; i--) {
     if (argv[i] === '--overlay') { overlays.unshift(argv[i + 1]); argv.splice(i, 2); }
   }
-  const { flags, positional } = lib.parseArgs(argv, ['edit', 'target', 'grade', 'language']);
+  const { flags, positional } = lib.parseArgs(argv, ['edit', 'target', 'grade', 'language', 'output']);
+  const known = ['edit','target','grade','language','output','vertical','subtitles','preview','help'];
+  const unknown = Object.keys(flags).filter((name) => !known.includes(name));
+  if (unknown.length) die(`Unknown legacy option --${unknown[0]}. Use npm run edit -- highlights|youtube|shorts "video.mp4" --help for the new interface.`);
   const input = positional[0];
   if (!input || flags.help) { console.log(HELP); return; }
   if (!fs.existsSync(VIDEO_USE)) die('video-use is not installed. Clone it into this repository first.');
   const preset = flags.edit || 'highlights';
   if (!['highlights', 'silence-cut'].includes(preset)) die('--edit must be highlights or silence-cut.');
   const python = findPython();
+  console.warn('Legacy edit syntax: prefer npm run edit -- highlights|youtube|shorts "video.mp4". Legacy Scribe behavior still applies.');
+  process.env.PYTHONUTF8 = '1';
+  const tools = lib.ffTools();
+  if (path.isAbsolute(tools.ffmpeg)) process.env.PATH = `${path.dirname(tools.ffmpeg)}${path.delimiter}${process.env.PATH}`;
   const source = isUrl(input) ? await downloadUrl(input, python) : path.resolve(input);
   if (!fs.existsSync(source)) die(`Video not found: ${source}`);
   // video-use's Python helpers invoke ffmpeg by name. Preserve the absolute
@@ -177,7 +189,7 @@ async function main() {
   process.env.PATH = `${path.dirname(ffmpeg)}${path.delimiter}${process.env.PATH}`;
   const info = lib.probe(source);
   if (!info.hasVideo || !info.hasAudio) die('The input must contain both video and audio.');
-  const editDir = path.join(path.dirname(source), 'edit');
+  const editDir = path.join(process.env.LOCALAPPDATA || require('os').tmpdir(), 'VideoEditor', 'Cache', 'legacy', path.basename(source, path.extname(source)));
   fs.mkdirSync(editDir, { recursive: true });
   const target = parseDuration(flags.target) || (preset === 'silence-cut' ? info.duration : Math.min(Math.max(30, info.duration * 0.2), 600));
 
@@ -194,7 +206,7 @@ async function main() {
     version: 1,
     sources: { [sourceKey]: source },
     ranges,
-    grade: flags.grade || 'auto',
+    grade: flags.grade || (preset === 'highlights' ? 'none' : 'auto'),
     overlays: parseOverlays(overlays),
     total_duration_s: ranges.reduce((sum, range) => sum + range.end - range.start, 0),
     ...(flags.vertical ? { aspect: 'vertical' } : {}),
@@ -203,9 +215,19 @@ async function main() {
   fs.writeFileSync(edlFile, JSON.stringify(edl, null, 2));
   const output = path.join(editDir, `${preset}${flags.vertical ? '-vertical' : ''}${flags.subtitles ? '-subtitled' : ''}.mp4`);
   await run(python, pythonArgs(python, [path.join(VIDEO_USE, 'helpers', 'render.py'), edlFile, '-o', output,
+    ...(preset === 'highlights' ? ['--no-loudnorm'] : []),
     ...(flags.subtitles ? ['--build-subtitles'] : []),
     ...(flags.preview ? ['--preview'] : [])]));
-  console.log(`\nDone: ${output}\nEDL:  ${edlFile}`);
+  const destination = path.resolve(flags.output || path.dirname(source));
+  fs.mkdirSync(destination, { recursive: true });
+  const stem = `${path.basename(source, path.extname(source))}-${preset}${flags.vertical ? '-vertical' : ''}${flags.preview ? '-preview' : ''}`;
+  let delivered;
+  for (let index = 0; ; index++) {
+    delivered = path.join(destination, `${stem}${index ? '-' + index : ''}.mp4`);
+    try { fs.copyFileSync(output, delivered, fs.constants.COPYFILE_EXCL); break; }
+    catch (error) { if (error.code !== 'EEXIST') throw error; }
+  }
+  console.log(`\nDone: ${delivered}\nEDL (cache): ${edlFile}`);
 }
 
 main().catch((error) => die(error.message));

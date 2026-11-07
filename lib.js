@@ -25,7 +25,13 @@ function works(cmd, args = ['-version']) {
 // unzipped whisper.cpp release, whose folder layout can change between builds).
 function findFile(dir, name, depth = 4) {
   if (depth < 0 || !fs.existsSync(dir)) return null;
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+  let entries;
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+  catch (error) {
+    if (['EACCES', 'EPERM', 'ENOENT'].includes(error.code)) return null;
+    throw error;
+  }
+  for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isFile() && entry.name.toLowerCase() === name.toLowerCase()) return full;
     if (entry.isDirectory()) {

@@ -6,11 +6,18 @@
   "license": "MIT",
   "engines": { "node": ">=18" },
   "scripts": {
+    "creator": "node editor.js",
+    "test": "node editor.js test",
     "setup": "node setup.js",
     "transcribe": "node transcribe.js",
     "cut": "node cut.js",
     "silence": "node silence.js",
     "download": "node download.js",
-    "edit": "node auto-edit.js"
+    "edit": "node auto-edit.js",
+    "highlights": "node auto-edit.js highlights",
+    "youtube": "node auto-edit.js youtube",
+    "shorts": "node auto-edit.js shorts",
+    "project": "node auto-edit.js project",
+    "setup:local": "node editor.js install-asr"
   }
 }

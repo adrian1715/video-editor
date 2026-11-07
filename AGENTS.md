@@ -1,5 +1,33 @@
 # Repository Guidelines
 
+Primary entry: `npm run edit -- highlights|youtube|shorts "FILE"`. All share
+creator/modes.py -> creator/cli.py. Use returned mode_projects with the advanced
+agent commands. Re-preview the same options after revisions, then --approve.
+Default edits are MP4s beside the source; processing state is in the user cache.
+--project generates all three modes in a named source-adjacent project folder.
+--output overrides either destination. Never overwrite source footage.
+
+## Editing workflow for agents
+
+Follow docs/agent-workflow.md and skills/creator-editing/SKILL.md. Discover with
+`node editor.js inspect --project PATH --json`; read transcript words/settings,
+generate frames, interpret the creative brief, author a revision-bound JSON plan,
+validate-plan, apply-plan, preview, read QA, perform subjective creative review,
+revise, obtain creator approval, approve/export, then record accepted/rejected
+feedback. Use documented commands rather than modifying engine source for edits.
+Keep source footage immutable. New plans must use complete sentence/word boundaries.
+Standalone planning uses the same validator/render engine and needs no agent.
+
+## Current Creator Architecture
+
+Read README.md and docs/status.md before editing. The persistent creator CLI is
+editor.js -> creator/cli.py; legacy entry points remain compatible. Project JSON
+and vendored EDL formats differ. Keep changes in adapters where possible.
+Projects belong in output/ or outside the repo; never commit footage or secrets.
+`npm test` runs both unit suites; `python tests/smoke_creator.py` generates an
+ignored FFmpeg demo. Use PYTHONUTF8=1 on Windows. Claim only executed validations.
+Current gaps are recorded in docs/status.md; do not label them implemented.
+
 ## Project Structure & Module Organization
 
 This is a local Node.js video-highlights pipeline. Top-level scripts are the
@@ -40,7 +68,7 @@ spelling lowercase kebab-style (for example, `--no-fade`).
 
 ## Testing Guidelines
 
-No test framework or coverage target is currently configured. Validate changes
+Python unittest covers core and vendor behavior. Run `npm test`. Validate changes
 with a small disposable video: run the affected command, confirm the expected
 files appear under `output/<name>/`, and inspect errors and duration metadata.
 For cutting changes, confirm the resulting audio/video plays and segment timing
