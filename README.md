@@ -23,7 +23,7 @@ that contain spaces.
 | FFmpeg and FFprobe | Every workflow | Windows: `winget install --id Gyan.FFmpeg -e` |
 | Python 3.10+ | Automatic editor and Video Use helpers | `python --version` |
 | ElevenLabs API key | Automatic editor and Video Use transcription | Store only in `video-use/.env` |
-| yt-dlp | Editing supported video URLs | `python -m pip install yt-dlp` |
+| yt-dlp | Downloading or editing supported video URLs | `python -m pip install yt-dlp` |
 
 Set up the free, fully local Whisper workflow once:
 
@@ -35,6 +35,20 @@ npm run setup -- --model medium      # optional: more accurate, larger model
 On Windows, scripts find FFmpeg through `PATH` or `FFMPEG_DIR`. On macOS, run
 `brew install ffmpeg whisper-cpp`. Set `WHISPER_CLI` if whisper.cpp is installed
 outside the standard locations.
+
+## Download a Video URL
+
+Download one supported video URL without starting an edit:
+
+```powershell
+npm run download -- "https://www.youtube.com/watch?v=example"
+npm run download -- "https://www.youtube.com/watch?v=example" --output "D:\Videos\Downloads"
+```
+
+The default destination is `downloads/` in this repository. Downloads are
+merged to MP4 when possible. Only download media you are authorized to save and
+use. Use the automatic editor below to download and edit the same URL in one
+command.
 
 ## Automatic Editor (No Coding Agent Required)
 
@@ -294,6 +308,7 @@ For deterministic, no-agent edits, use the **Automatic Editor** commands above.
 
 ```
 setup.js        dependency check + downloads
+download.js     URL downloader (yt-dlp)
 transcribe.js   FFmpeg audio extraction + whisper.cpp
 cut.js          segment cutting / joining
 silence.js      silence detection

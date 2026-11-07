@@ -10,6 +10,7 @@
     "transcribe": "node transcribe.js",
     "cut": "node cut.js",
     "silence": "node silence.js",
+    "download": "node download.js",
     "edit": "node auto-edit.js"
   }
 }

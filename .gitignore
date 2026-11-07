@@ -2,5 +2,6 @@ node_modules/
 bin/
 models/
 output/
+downloads/
 samples/
 *.part
