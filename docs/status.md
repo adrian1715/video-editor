@@ -2,6 +2,20 @@
 
 ## Implemented and exercised
 
+- Legacy Whisper TXT/SRT/metadata are grouped in a <video>-transcript/ folder
+  beside source footage, or under --output. Repeated runs use numbered folders
+  without changing existing files. Intermediate files use unique
+  temporary folders; cleaned on success and retained on failure. Destination
+  regression tests simulate ASR/FFmpeg; no real whisper.cpp inference rerun for
+  this filesystem-only change.
+
+- Transcript-only primary mode and npm alias: complete UTF-8 text beside each
+  source, chronological timestamped paragraphs, non-overwriting filenames and shared
+  ASR caches. No pause/duration splits: conservative explicit topic transitions
+  locally, or optional LLM topic titles/boundaries with strict validation and
+  fragment merging. No live semantic accuracy claim; model adapter tested mocked. No video
+  rendering occurs in this mode. Legacy whisper.cpp command retained separately.
+
 - Highlights cut-only defaults: no loudness normalization, gain, compression,
   music mixing, ducking, fades or automatic captions. Native source dimensions
   and nominal FPS unless a platform conversion is explicitly requested. Audio
@@ -56,7 +70,7 @@ speech should use manual ranges rather than speech planning.
 
 ## Tests actually executed for this update
 
-- `npm test`: **71 passed, 0 failed, 0 skipped** (45 core, 26 vendored).
+- `npm test`: **87 passed, 0 failed, 0 skipped** (61 core, 26 vendored).
 - `tests/smoke_highlights.py`: synthetic quiet-tone test passed with native
   640x360/24fps, mono 44.1kHz, two retained cuts, 2-second output, and less than
   0.25 dB interior RMS difference from source in both cuts. Actual listening and

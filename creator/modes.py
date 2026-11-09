@@ -12,6 +12,7 @@ import sys
 import time
 from pathlib import Path
 import cli
+from transcript_text import document, semantic_topics
 from planning import local_plan, sentences, duplicate, overlaps, validate_plan, revision, constraints
 
 
@@ -37,7 +38,7 @@ def duration_arg(text):
 
 def parser():
     p=argparse.ArgumentParser(description='Save edited videos beside footage. --project creates a full YouTube/Shorts/Highlights bundle.')
-    p.add_argument('mode',choices=['highlights','youtube','shorts','project'])
+    p.add_argument('mode',choices=['highlights','youtube','shorts','project','transcribe'])
     p.add_argument('sources',nargs='+',help='Local video paths (quote spaces); download URLs with npm run download first')
     p.add_argument('--profile',choices=list(cli.PROFILES),default='build-in-public')
     p.add_argument('--target',type=duration_arg,help='Approximate target seconds or 1m30s; complete ideas take priority')
@@ -57,11 +58,15 @@ def parser():
     p.add_argument('--separate',action='store_true',help='Highlights: export each selected idea as its own clip')
     p.add_argument('--constraints',help='JSON include/exclude source timestamp ranges')
     p.add_argument('--json',action='store_true',help='Machine-readable result; default is a readable completion message')
+    p.add_argument('--section-gap',type=duration_arg,help='Deprecated: ignored; pauses no longer force topic sections')
+    p.add_argument('--section-length',type=duration_arg,help='Deprecated: ignored; duration no longer forces topic sections')
     return p
 
 
 def completion_message(result, argv):
     """Give humans a playable file and an exact next step; JSON remains opt-in."""
+    if result['mode']=='transcribe':
+        return '\n'.join(['Transcript ready.']+[f'Text: {file}' for file in result['transcript_files']]+[f'Processing state and log: {result["log"]}'])
     label='Preview' if result['preview'] else 'Final video'
     lines=[f'{label} ready ({result["mode"]}).']
     filename='preview.mp4' if result['preview'] else 'final.mp4'
@@ -111,6 +116,8 @@ def publish_file(source,directory,stem):
 
 
 def execute(args):
+    if args.mode=='transcribe' and (args.project or args.preview or args.approve or args.platforms or args.captions or args.separate or args.target or args.constraints):
+        raise ValueError('Transcribe exports full text only. Omit video-editing/project flags; use --output, --provider or --ai for topic sectioning.')
     if not (args.project or args.mode=='project'): return execute_mode(args)
     if args.separate: raise ValueError('--separate is single-mode Highlights only; project bundles already contain all modes')
     root=workspace(args,[str(Path(f).resolve()) for f in args.sources])
@@ -229,6 +236,28 @@ def execute_mode(args):
             if args.profile!='music' or args.mode!='youtube':
                 invoke('transcribe',folder,'--provider',args.provider,*(['--allow-upload'] if args.allow_upload else []))
                 p=cli.read(folder/'project.json')
+            if args.mode=='transcribe':
+                if args.section_gap or args.section_length:
+                    print('Section gap/length options are deprecated and ignored; only topic transitions create sections.',file=sys.stderr)
+                files=[]; sections=[]
+                for source in p['sources'].values():
+                    topics=semantic_topics(source) if args.ai else None
+                    text,count=document(source,topics=topics)
+                    original=Path(source['file'])
+                    directory=Path(args.output).resolve() if args.output else original.parent
+                    directory.mkdir(parents=True,exist_ok=True)
+                    index=0
+                    while True:
+                        file=directory/(original.stem+'-transcript'+(f'-{index}' if index else '')+'.txt')
+                        try:
+                            with file.open('x',encoding='utf-8') as out: out.write(text)
+                            break
+                        except FileExistsError: index+=1
+                    files.append(str(file)); sections.append(count)
+                result={'mode':'transcribe','project':str(root),'transcript_files':files,'section_counts':sections,
+                        'section_method':'semantic-model' if args.ai else 'conservative-explicit-transitions','log':str(log)}
+                cli.write(root/'reports'/f'transcript-{time.time_ns()}.json',result)
+                return result
             rules=constraints(p,cli.read(args.constraints) if args.constraints else None)
             # Mode settings are applied to a copy so workflows share cached sources but not timelines.
             working=copy.deepcopy(p)

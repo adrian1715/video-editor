@@ -2,6 +2,14 @@
 
 ## Primary editing modes
 
+Transcript-only export: `npm run transcribe -- "FILE"` or
+`node auto-edit.js transcribe "FILE" --json`. It returns `transcript_files` and
+`section_counts`, without any video render. Local sections require explicit topic
+transitions; pauses/duration never force splits. --ai optionally requests broad
+topic boundaries and topic-based titles from the configured LLM. Review titles
+and boundaries for real topical relevance. All original text is retained.
+Defaults save UTF-8 TXT beside each source and reuse the same ASR cache.
+
 Start with `npm run edit -- highlights|youtube|shorts "FILE" --preview` for an
 organized project. Returned `mode_projects` point to `data/edits/...`.
 Add `--json` to the primary mode command to receive these structured fields;

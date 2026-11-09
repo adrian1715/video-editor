@@ -16,7 +16,7 @@ const path = require('path');
 const lib = require('./lib');
 
 // New primary modes share the persistent creator engine. Keep legacy syntax below.
-if (['highlights', 'youtube', 'shorts', 'project', '--help', '-h'].includes(process.argv[2]) || process.argv.length === 2) {
+if (['highlights', 'youtube', 'shorts', 'project', 'transcribe', '--help', '-h'].includes(process.argv[2]) || process.argv.length === 2) {
   const result = spawnSync(process.execPath, [path.join(__dirname, 'editor.js'), '--mode-cli', ...process.argv.slice(2)], { stdio: 'inherit', windowsHide: true });
   process.exit(result.status ?? 1);
 }

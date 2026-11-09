@@ -1,5 +1,12 @@
 # Repository Guidelines
 
+Transcript-only entry: `npm run transcribe -- "FILE"` / `npm run edit -- transcribe
+"FILE"`. Exports full timestamped sectioned TXT, reusing the ASR cache, with no
+video rendering. No pause/time-based section splitting: local explicit topic
+transitions only, or --ai for validated topic-based titles/boundaries. No forced
+headings when content stays on one topic; never summarize/replace transcript text.
+`npm run transcribe:legacy` retains the original whisper.cpp tool.
+
 Primary entry: `npm run edit -- highlights|youtube|shorts "FILE"`. All share
 creator/modes.py -> creator/cli.py. Use returned mode_projects with the advanced
 agent commands. Re-preview the same options after revisions, then --approve.

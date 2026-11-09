@@ -57,4 +57,9 @@ assert len(bundle['video_files'])==4
 for name in ['data','highlights','youtube','shorts','assets','temporary','reports']:
     assert (source.parent/(source.stem+'-edited-project')/name).is_dir()
 for file in bundle['video_files']: assert Path(file).is_file()
+text=invoke(['transcribe',str(source),'--cache-dir',str(root/'cache'),'--transcript',str(transcript)])
+txt=Path(text['transcript_files'][0])
+assert txt.parent==source.parent and txt.suffix=='.txt'
+assert 'The problem.' in txt.read_text(encoding='utf-8')
+assert 'The final result.' in txt.read_text(encoding='utf-8')
 print('PASS all 3 modes, flat defaults, non-overwriting reruns, project bundle defaults, overrides, cached state, preview/approval and QA. Fixtures: '+str(root))

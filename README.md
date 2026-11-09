@@ -111,6 +111,71 @@ Transcripts and feedback persist until you delete their project folder.
 
 ## Quick start
 
+To export the full spoken transcript as a text file without editing the video:
+
+```powershell
+npm run transcribe -- "D:\Videos\recording.mp4"
+# Equivalent primary mode:
+npm run edit -- transcribe "D:\Videos\recording.mp4"
+# Optional destination:
+npm run transcribe -- "D:\Videos\recording.mp4" --output "D:\Notes"
+# Optional semantic topic detection/titles, using the configured LLM:
+npm run transcribe -- "D:\Videos\recording.mp4" --ai
+```
+
+This writes `recording-transcript.txt` beside the video by default. Repeated
+exports get a suffix instead of overwriting earlier text. Full speech is retained,
+including incomplete final sentences; nothing is cut or summarized. Pauses and
+elapsed time no longer force section divisions. Local mode conservatively splits
+only on explicit topic-transition phrases (English/Portuguese), using the stated
+topic as a title. Without clear transitions, the transcript stays continuous,
+without artificial headings. Paragraph breaks and timestamps keep it readable.
+
+`--ai` reads the whole transcript and proposes a few broad, sustained topic
+changes and concise topic-based titles in the original language. It uses the
+configured LLM_URL/LLM_MODEL; transcript words are sent to that service, but video
+and source paths are not. Choose a local endpoint for local processing. The whole
+transcript must fit the model's context window. Provider quality is experimental;
+live topic accuracy has not been validated. Boundaries are validated and fragments
+are merged: both sides must contain at least 80 timed words and 60 seconds of
+content. These are anti-fragmentation guards, not a rule to split periodically.
+If there is no clear distinction, no heading/split is forced. Text stays verbatim
+apart from whitespace/punctuation spacing; the model cannot replace transcript text.
+The mode shares cached word transcripts with Highlights and renders no video.
+Local ASR setup/speed options below also apply. `--provider scribe --allow-upload`
+optionally uses paid cloud transcription; `--json` returns `transcript_files`.
+`--preview`, `--approve` and `--project` are editing-only and rejected here.
+Old `--section-gap` / `--section-length` flags are deprecated and ignored with a
+message. Re-run the normal transcribe command to regenerate text from cached ASR.
+For multiple videos, quote each path; each transcript defaults beside its source.
+
+The original whisper.cpp tool remains as `npm run transcribe:legacy -- FILE` or
+`node transcribe.js FILE`. Existing npm calls with `--model`, `--language` or
+`--threads` still route to that legacy tool with a migration message.
+Legacy exports are grouped in a folder beside the source, with an optional
+parent destination:
+
+```powershell
+npm run transcribe:legacy -- "D:\Videos\recording.mp4"
+npm run transcribe:legacy -- "D:\Videos\recording.mp4" --output "D:\Notes" --model medium --language pt
+```
+
+For `recording.mp4`, files are grouped as:
+
+```text
+recording-transcript/
+  transcript.txt
+  transcript.srt
+  meta.json
+```
+
+`--output "D:\Notes"` creates `D:\Notes\recording-transcript\`. Repeated runs
+create `recording-transcript-1/`, `recording-transcript-2/`, etc., preserving
+earlier exports. Previously exported loose files are left untouched.
+Temporary audio/Whisper JSON uses the system temporary directory, cleaned on
+success; failures report its location for diagnosis. This legacy tool exports
+plain timestamped segments, not the topic-organized text of the primary mode.
+
 For local automatic editing, install the transcription dependency once:
 
 ```powershell
@@ -210,7 +275,7 @@ review; sentence completeness is only a mechanical proxy.
 
 | Option | Meaning |
 | --- | --- |
-| `MODE` | `highlights`, `youtube`, `shorts`, or `project` (all three) |
+| `MODE` | `highlights`, `youtube`, `shorts`, `transcribe` (full text), or `project` (all three edits) |
 | `--profile NAME` | Any content profile below; default `build-in-public` |
 | `--target 60` / `--target 1m30s` | Approximate editorial duration; complete/required ideas may exceed it |
 | `--count 3` | Maximum Shorts count, 1–100; fewer if insufficient distinct material |
@@ -230,6 +295,8 @@ review; sentence completeness is only a mechanical proxy.
 | `--constraints FILE` | JSON include/exclude timestamps; see agent workflow |
 | `--help` | Complete command usage and supported flags |
 | `--json` | Structured output for agents; normal runs show readable completion and video paths |
+| `--section-gap SECONDS` | Deprecated/ignored: silence never forces topic sections |
+| `--section-length SECONDS` | Deprecated/ignored: duration never forces topic sections |
 
 Highlights uses Pareto as an editorial heuristic: selective value and context,
 not an obligation to keep exactly 20%. YouTube preserves chronology and removes
@@ -449,8 +516,9 @@ npm run edit -- "video.mp4" --edit highlights --target 60 --vertical --subtitles
 npm run edit -- "video.mp4" --edit silence-cut --language pt --preview
 ```
 
-`setup` downloads whisper.cpp/model assets. Local `transcribe` writes TXT, SRT,
-metadata under `output/<name>/`. `silence` writes detected gaps plus inverse
+`setup` downloads whisper.cpp/model assets. `transcribe:legacy` writes TXT, SRT,
+metadata in a `<video-name>-transcript/` folder beside the video or under
+`--output`. `silence` writes detected gaps plus inverse
 segments. `cut` accepts `[{"start":"00:01:00","end":"00:01:10","reason":"hook"}]`,
 defaults to `output/<name>/segments.json`, optionally exports separate clips,
 and supports fades/hardware encoders with CPU fallback. `download` saves a single
